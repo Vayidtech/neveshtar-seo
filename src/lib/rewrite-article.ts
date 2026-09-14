@@ -41,11 +41,11 @@ const MAX_FETCH = 400_000;
 
 const PROVIDER_CONFIG: Record<Provider, { baseUrl: string; defaultModel: string; models: string[] }> = {
   openai: {
-    baseUrl: "https://api.gapgpt.app/v1",
+    baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4o",
     models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"],
   },
-  // Free: Google AI Studio (AIza...). Fallback: GapGPT paid channel names.
+  // Free: Google AI Studio (AIza...)
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-2.0-flash",
@@ -55,10 +55,6 @@ const PROVIDER_CONFIG: Record<Provider, { baseUrl: string; defaultModel: string;
       "gemini-1.5-flash",
       "gemini-1.5-pro",
       "gemini-2.5-pro",
-      "gemini-3.5-flash",
-      "gemini-3.1-flash-lite",
-      "gemini-3-flash-preview",
-      "gemini-3.1-pro-preview",
     ],
   },
   grok: {
@@ -190,29 +186,20 @@ function toEnglishSlug(input: string): string {
 }
 
 async function generateImage(
-  gapKey: string,
+  openaiKey: string,
   prompt: string,
   geminiKey?: string,
 ): Promise<string | undefined> {
-  const modelsToTry = [
-    "gemini-2.5-flash-image",
-    "gemini-3.1-flash-image-preview",
-    "gemini-3-pro-image-preview",
-    "gemini-2.0-flash-preview-image-generation",
-    "imagen-3.0-generate-002",
-    "dall-e-3",
-    "gpt-image-1",
-    "gpt-image-1-mini",
-  ];
+  const modelsToTry = ["dall-e-3", "gpt-image-1", "gpt-image-1-mini", "dall-e-2"];
 
-  if (gapKey) {
+  if (openaiKey) {
     for (const model of modelsToTry) {
       try {
-        const res = await fetch("https://api.gapgpt.app/v1/images/generations", {
+        const res = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${gapKey}`,
+            Authorization: `Bearer ${openaiKey}`,
           },
           body: JSON.stringify({ model, prompt, n: 1, size: "1024x1024" }),
         });
@@ -425,33 +412,28 @@ export const rewriteArticle = createServerFn({ method: "POST" })
     let imageKey = "";
     let baseUrl = cfg.baseUrl;
     const freeGeminiKey = (data.geminiKey || "").trim();
-    const gapKey = (data.apiKey || "").trim();
+    const openaiKey = (data.apiKey || "").trim();
 
     if (provider === "grok") {
       chatKey = (data.xaiKey || process.env.XAI_API_KEY || "").trim();
-      imageKey = gapKey || chatKey;
+      imageKey = openaiKey || chatKey;
       if (!chatKey) return { ok: false, error: "کلید xAI تنظیم نشده." };
     } else if (provider === "gemini") {
-      // Prefer free Google AI Studio key
       if (freeGeminiKey) {
         chatKey = freeGeminiKey;
         imageKey = freeGeminiKey;
         baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai";
-      } else if (gapKey) {
-        chatKey = gapKey;
-        imageKey = gapKey;
-        baseUrl = "https://api.gapgpt.app/v1";
       } else {
         return {
           ok: false,
-          error:
-            "برای Gemini کلید رایگان Google AI Studio (AIza...) را در تنظیمات بگذارید، یا کلید GapGPT.",
+          error: "برای Gemini کلید رایگان Google AI Studio (AIza...) را در تنظیمات بگذارید.",
         };
       }
     } else {
-      chatKey = gapKey;
-      imageKey = gapKey;
-      if (!chatKey) return { ok: false, error: "کلید GapGPT تنظیم نشده." };
+      chatKey = openaiKey;
+      imageKey = openaiKey;
+      baseUrl = "https://api.openai.com/v1";
+      if (!chatKey) return { ok: false, error: "کلید OpenAI (ChatGPT) تنظیم نشده." };
     }
 
     let source = (data.text || "").trim();
