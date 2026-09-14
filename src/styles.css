@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0a0b;
+  --color-surface: #121214;
+  --color-subtle: #1a1a1e;
+  --color-fg: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-subtle-fg: #71717a;
+  --color-primary: #e8eaee;
+  --color-primary-fg: #0a0a0b;
+  --color-accent: #c8ccd4;
+  --color-border: color-mix(in oklab, #f4f4f5 12%, transparent);
+  --color-border-strong: color-mix(in oklab, #f4f4f5 22%, transparent);
+  --color-ok: #6ee7b7;
+  --color-warn: #fcd34d;
+  --color-danger: #fca5a5;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --font-sans: "Vazirmatn", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Vazirmatn", "Segoe UI", system-ui, sans-serif;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    line-height: 1.6;
+  }
+}
+
+@layer components {
+  .field {
+    width: 100%;
+    min-height: 2.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-fg);
+    outline: none;
+  }
+  .field::placeholder {
+    color: var(--color-subtle-fg);
+  }
+  .field:focus {
+    border-color: var(--color-border-strong);
+  }
+}
