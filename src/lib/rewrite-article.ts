@@ -158,7 +158,11 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | u
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">").replace(/"/g, """);
+  return s
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, """);
 }
 
 type Block =
@@ -264,7 +268,13 @@ function injectBacklink(html: string, site: string, label: string): string {
   if (!site) return html;
   const L = escapeHtml(label || "گهوارک");
   const H = escapeHtml(site);
-  const re = new RegExp(`${L.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(${H.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "g");
+  const re = new RegExp(
+    L.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+      " \\(" +
+      H.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+      "\\)",
+    "g",
+  );
   return html.replace(re, `<a href="${H}" target="_blank" rel="noopener noreferrer">${L}</a>`);
 }
 
