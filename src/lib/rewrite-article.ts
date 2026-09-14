@@ -59,11 +59,6 @@ function stripHtml(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, '"')
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -157,12 +152,13 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | u
   return undefined;
 }
 
+/** Escape HTML special chars without writing entity literals that get decoded in transit */
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .split("&").join("&" + "amp;")
+    .split("<").join("&" + "lt;")
+    .split(">").join("&" + "gt;")
+    .split('"').join("&" + "quot;");
 }
 
 type Block =
