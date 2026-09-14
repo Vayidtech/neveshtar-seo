@@ -125,9 +125,20 @@ export function SeoStudio() {
     setLoading(true);
     setResult(null);
 
-    const hasKey = provider === "grok" ? !!settings.xaiKey.trim() : !!settings.gapgptKey.trim();
+    const hasKey =
+      provider === "grok"
+        ? !!settings.xaiKey.trim()
+        : provider === "gemini"
+          ? !!(settings.geminiKey.trim() || settings.gapgptKey.trim())
+          : !!settings.gapgptKey.trim();
     if (!hasKey) {
-      setError(provider === "grok" ? "کلید xAI را در تنظیمات وارد کنید." : "کلید GapGPT را در تنظیمات وارد کنید.");
+      setError(
+        provider === "grok"
+          ? "کلید xAI را در تنظیمات وارد کنید."
+          : provider === "gemini"
+            ? "کلید رایگان Gemini (AIza...) یا GapGPT را در تنظیمات وارد کنید."
+            : "کلید GapGPT را در تنظیمات وارد کنید.",
+      );
       setShowSettings(true);
       setLoading(false);
       return;
@@ -188,7 +199,7 @@ export function SeoStudio() {
             به‌روزرسانی مقاله و سئو
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            HTML آماده کپی · H1/H2/H3 · جایگاه تصویر با alt · اسلاگ انگلیسی
+            HTML آماده کپی · Gemini رایگان با کلید Google · H1/H2/H3
           </p>
         </div>
         <div className="flex gap-2">
@@ -250,7 +261,7 @@ export function SeoStudio() {
 
           <label className="flex min-h-11 items-center gap-3 text-sm text-fg">
             <input type="checkbox" checked={generateImages} onChange={(e) => setGenerateImages(e.target.checked)} className="size-4 accent-fg" />
-            تولید تصویر (GapGPT / Gemini API)
+            تولید تصویر (GapGPT یا کلید رایگان Gemini)
           </label>
 
           {error && (
@@ -354,12 +365,12 @@ export function SeoStudio() {
               <button type="button" onClick={() => setShowSettings(false)}><X className="size-5 text-muted" /></button>
             </div>
             <div className="space-y-4">
-              <Field label="کلید GapGPT (متن + تصویر)">
+              <Field label="کلید GapGPT (OpenAI و در صورت نیاز تصویر)">
                 <input type="password" dir="ltr" value={settings.gapgptKey}
                   onChange={(e) => persistSettings({ ...settings, gapgptKey: e.target.value })}
                   className="field font-mono text-sm" placeholder="sk-..." />
               </Field>
-              <Field label="کلید Google Gemini (اختیاری — برای تصویر)">
+              <Field label="کلید رایگان Google Gemini (AI Studio — AIza...)">
                 <input type="password" dir="ltr" value={settings.geminiKey}
                   onChange={(e) => persistSettings({ ...settings, geminiKey: e.target.value })}
                   className="field font-mono text-sm" placeholder="AIza..." />
