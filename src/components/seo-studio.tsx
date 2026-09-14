@@ -14,11 +14,11 @@ const PROVIDERS: { id: Provider; label: string }[] = [
   { id: "grok", label: "Grok" },
 ];
 
-const HISTORY_KEY = "neveshtar-history-v3";
-const SETTINGS_KEY = "neveshtar-settings-v3";
+const HISTORY_KEY = "neveshtar-history-v4";
+const SETTINGS_KEY = "neveshtar-settings-v4";
 
 type Settings = {
-  gapgptKey: string;
+  openaiKey: string;
   xaiKey: string;
   geminiKey: string;
   defaultProvider: Provider;
@@ -39,7 +39,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) return JSON.parse(raw) as Settings;
   } catch { /* */ }
-  return { gapgptKey: "", xaiKey: "", geminiKey: "", defaultProvider: "openai" };
+  return { openaiKey: "", xaiKey: "", geminiKey: "", defaultProvider: "openai" };
 }
 
 function saveSettings(s: Settings) {
@@ -129,15 +129,15 @@ export function SeoStudio() {
       provider === "grok"
         ? !!settings.xaiKey.trim()
         : provider === "gemini"
-          ? !!(settings.geminiKey.trim() || settings.gapgptKey.trim())
-          : !!settings.gapgptKey.trim();
+          ? !!settings.geminiKey.trim()
+          : !!settings.openaiKey.trim();
     if (!hasKey) {
       setError(
         provider === "grok"
           ? "کلید xAI را در تنظیمات وارد کنید."
           : provider === "gemini"
-            ? "کلید رایگان Gemini (AIza...) یا GapGPT را در تنظیمات وارد کنید."
-            : "کلید GapGPT را در تنظیمات وارد کنید.",
+            ? "کلید رایگان Gemini (AIza...) را در تنظیمات وارد کنید."
+            : "کلید OpenAI (ChatGPT) را در تنظیمات وارد کنید.",
       );
       setShowSettings(true);
       setLoading(false);
@@ -155,7 +155,7 @@ export function SeoStudio() {
           generateImages,
           provider,
           model,
-          apiKey: settings.gapgptKey,
+          apiKey: settings.openaiKey,
           xaiKey: settings.xaiKey,
           geminiKey: settings.geminiKey,
         },
@@ -199,7 +199,7 @@ export function SeoStudio() {
             به‌روزرسانی مقاله و سئو
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            HTML آماده کپی · Gemini رایگان با کلید Google · H1/H2/H3
+            HTML آماده کپی · ChatGPT / OpenAI · Gemini رایگان · H1/H2/H3
           </p>
         </div>
         <div className="flex gap-2">
@@ -261,7 +261,7 @@ export function SeoStudio() {
 
           <label className="flex min-h-11 items-center gap-3 text-sm text-fg">
             <input type="checkbox" checked={generateImages} onChange={(e) => setGenerateImages(e.target.checked)} className="size-4 accent-fg" />
-            تولید تصویر (GapGPT یا کلید رایگان Gemini)
+            تولید تصویر (OpenAI DALL·E یا کلید رایگان Gemini)
           </label>
 
           {error && (
@@ -365,9 +365,9 @@ export function SeoStudio() {
               <button type="button" onClick={() => setShowSettings(false)}><X className="size-5 text-muted" /></button>
             </div>
             <div className="space-y-4">
-              <Field label="کلید GapGPT (OpenAI و در صورت نیاز تصویر)">
-                <input type="password" dir="ltr" value={settings.gapgptKey}
-                  onChange={(e) => persistSettings({ ...settings, gapgptKey: e.target.value })}
+              <Field label="کلید OpenAI / ChatGPT (sk-...)">
+                <input type="password" dir="ltr" value={settings.openaiKey}
+                  onChange={(e) => persistSettings({ ...settings, openaiKey: e.target.value })}
                   className="field font-mono text-sm" placeholder="sk-..." />
               </Field>
               <Field label="کلید رایگان Google Gemini (AI Studio — AIza...)">
