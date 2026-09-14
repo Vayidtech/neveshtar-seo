@@ -105,13 +105,64 @@ async function fetchUrlTextTwice(url: string): Promise<{ text: string; checked: 
 }
 
 function extractJson(raw: string): unknown {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1] : trimmed;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("پاسخ مدل قابل پارس نبود");
-  return JSON.parse(candidate.slice(start, end + 1));
+  const trimmed = (raw || "").trim();
+  if (!trimmed) throw new Error("empty");
+
+  const candidates: string[] = [];
+
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(trimmed)) !== null) {
+    if (m[1]?.trim()) candidates.push(m[1].trim());
+  }
+
+  candidates.push(trimmed);
+  const start0 = trimmed.indexOf("{");
+  const end0 = trimmed.lastIndexOf("}");
+  if (start0 !== -1 && end0 > start0) {
+    candidates.push(trimmed.slice(start0, end0 + 1));
+  }
+
+  const tried = new Set<string>();
+  for (let cand of candidates) {
+    cand = cand.trim();
+    if (!cand || tried.has(cand)) continue;
+    tried.add(cand);
+
+    let slice = cand;
+    const s = slice.indexOf("{");
+    if (s === -1) continue;
+    slice = slice.slice(s);
+    let depth = 0;
+    let endIdx = -1;
+    for (let i = 0; i < slice.length; i++) {
+      const ch = slice[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+    if (endIdx !== -1) slice = slice.slice(0, endIdx + 1);
+
+    const variants = [
+      slice,
+      slice.replace(/,\s*([}\]])/g, "$1"),
+      slice.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'"),
+    ];
+
+    for (const v of variants) {
+      try {
+        return JSON.parse(v);
+      } catch {
+        /* next */
+      }
+    }
+  }
+  throw new Error("parse failed");
 }
 
 function toEnglishSlug(input: string): string {
@@ -152,7 +203,6 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | u
   return undefined;
 }
 
-/** Escape HTML special chars without writing entity literals that get decoded in transit */
 function escapeHtml(s: string): string {
   return s
     .split("&").join("&" + "amp;")
@@ -323,7 +373,7 @@ Target length: about ${targetChars} CHARACTERS (±12%).
 Keyword: ${data.keyword || "(infer)"}
 Naturally mention "${backlinkLabel}" (${backlinkSite}) 1-2 times.
 
-Return ONLY JSON:
+Return ONLY one valid JSON object (no markdown). Schema:
 {
   "title": "SEO title max 70 chars",
   "slug": "english-only-hyphenated-slug",
@@ -339,15 +389,27 @@ Use many # H1 sections + FAQ with ##.
 SOURCE:
 ${source}`;
 
+    const payload: Record<string, unknown> = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a JSON API. Respond with a single valid JSON object only. No markdown fences, no commentary.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 8000,
+      temperature: 0.25,
+    };
+    if (provider !== "grok") {
+      payload.response_format = { type: "json_object" };
+    }
+
     const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${chatKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 6000,
-        temperature: 0.4,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -377,7 +439,17 @@ ${source}`;
     try {
       parsed = extractJson(content) as typeof parsed;
     } catch {
-      return { ok: false, error: "پاسخ مدل قابل استفاده نبود." };
+      const snippet = (content || "").replace(/\s+/g, " ").slice(0, 120);
+      return {
+        ok: false,
+        error: snippet
+          ? `پاسخ مدل قابل استفاده نبود. نمونه: ${snippet}`
+          : "پاسخ مدل خالی بود. مدل یا کلید را بررسی کنید.",
+      };
+    }
+
+    if (!parsed.updatedText && !parsed.title) {
+      return { ok: false, error: "مدل فیلدهای ضروری (title/updatedText) را برنگرداند." };
     }
 
     const images: ImageResult[] = (parsed.images ?? [])
