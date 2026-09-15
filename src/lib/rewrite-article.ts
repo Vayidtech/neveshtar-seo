@@ -2,14 +2,29 @@ import { createServerFn } from "@tanstack/react-start";
 
 export type OutputLang = "fa" | "en";
 export type Provider = "openai" | "grok" | "gemini";
+export type LengthStrategy = "auto" | "expand" | "condense" | "custom";
 
-export type ImageResult = { title: string; prompt: string; url?: string };
+export type ImageResult = {
+  title: string;
+  prompt: string;
+  url?: string;
+  altText?: string;
+  type?: "hero" | "infographic" | "summary";
+};
+
+export type SeoAuditItem = {
+  name: string;
+  status: "pass" | "warning" | "info";
+  description: string;
+};
 
 export type RewriteResult = {
   ok: true;
   title: string;
+  titleAlternatives: string[];
   slug: string;
   keyword: string;
+  secondaryKeywords: string[];
   description: string;
   updatedText: string;
   htmlContent: string;
@@ -18,6 +33,13 @@ export type RewriteResult = {
   model: string;
   approxCost?: string;
   sourceChecked: boolean;
+  originalWordCount: number;
+  refreshedWordCount: number;
+  lengthActionTaken: "expanded" | "condensed" | "balanced";
+  estimatedReadingTimeMinutes: number;
+  summaryOfImprovements: string[];
+  seoScore: number;
+  seoAudit: SeoAuditItem[];
 };
 
 export type RewriteError = { ok: false; error: string };
@@ -27,6 +49,9 @@ export type RewriteInput = {
   text: string;
   keyword: string;
   targetChars: number;
+  lengthStrategy: LengthStrategy;
+  websiteContext?: string;
+  recentNotes?: string;
   lang: OutputLang;
   generateImages: boolean;
   provider: Provider;
@@ -39,13 +64,17 @@ export type RewriteInput = {
 const MAX_SOURCE = 14_000;
 const MAX_FETCH = 400_000;
 
+function countWords(text: string): number {
+  if (!text) return 0;
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 const PROVIDER_CONFIG: Record<Provider, { baseUrl: string; defaultModel: string; models: string[] }> = {
   openai: {
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4o",
     models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"],
   },
-  // Free: Google AI Studio (AIza...)
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-2.0-flash",
@@ -320,6 +349,18 @@ function parseBlocks(text: string, images: ImageResult[]): { blocks: Block[]; pl
       flushList();
       continue;
     }
+    const imgMarker = line.match(/<!--\s*IMAGE_(\d)\s*-->/i);
+    if (imgMarker) {
+      flushList();
+      const idx = Math.max(0, Number(imgMarker[1]) - 1);
+      const img = images[idx];
+      blocks.push({
+        type: "img",
+        alt: img?.altText || img?.title || `تصویر ${idx + 1}`,
+        src: img?.url || "",
+      });
+      continue;
+    }
     if (line.startsWith("### ") || /^H3:\s*/i.test(line)) {
       flushList();
       blocks.push({
@@ -361,13 +402,14 @@ function parseBlocks(text: string, images: ImageResult[]): { blocks: Block[]; pl
 
     const shouldPlace =
       imgIdx < images.length &&
+      b.type !== "img" &&
       ((!insertedFirst && b.type === "p") || (b.type === "h1" && h1Count > 0 && h1Count % 3 === 0));
 
     if (shouldPlace) {
       const img = images[imgIdx];
       withImgs.push({
         type: "img",
-        alt: img.title || `تصویر ${imgIdx + 1}`,
+        alt: img.altText || img.title || `تصویر ${imgIdx + 1}`,
         src: img.url || "",
       });
       if (!insertedFirst) insertedFirst = true;
@@ -379,7 +421,7 @@ function parseBlocks(text: string, images: ImageResult[]): { blocks: Block[]; pl
     const img = images[imgIdx];
     withImgs.push({
       type: "img",
-      alt: img.title || `تصویر ${imgIdx + 1}`,
+      alt: img.altText || img.title || `تصویر ${imgIdx + 1}`,
       src: img.url || "",
     });
     imgIdx++;
@@ -450,44 +492,70 @@ export const rewriteArticle = createServerFn({ method: "POST" })
     }
     if (!source) return { ok: false, error: "متن یا لینک را وارد کنید" };
     source = source.slice(0, MAX_SOURCE);
+    const originalWordCount = countWords(source);
+    const lengthStrategy = data.lengthStrategy || "custom";
+    const websiteContext = (data.websiteContext || "").trim();
+    const recentNotes = (data.recentNotes || "").trim();
+
+    let lengthGuidance = "";
+    if (lengthStrategy === "expand" || (lengthStrategy === "auto" && originalWordCount < 350)) {
+      lengthGuidance = `متن کوتاه است (${originalWordCount} کلمه). با بخش‌های عمیق، H2/H3، آمار به‌روز، مثال و FAQ به حدود 800–1400 کلمه گسترش دهید.`;
+    } else if (lengthStrategy === "condense" || (lengthStrategy === "auto" && originalWordCount > 1400)) {
+      lengthGuidance = `متن طولانی است (${originalWordCount} کلمه). زوائد را حذف و به حدود 650–950 کلمه متمرکز کنید.`;
+    } else if (lengthStrategy === "custom") {
+      lengthGuidance = `طول هدف حدود ${targetChars} کاراکتر (±12%) است.`;
+    } else {
+      lengthGuidance = `طول فعلی (${originalWordCount} کلمه) مناسب است؛ به حدود 750–1000 کلمه بهینه کنید.`;
+    }
 
     const langHint =
       data.lang === "fa"
         ? "Write ALL body text, titles, headings, list items in Persian (Farsi)."
         : "Write ALL body text in English.";
 
-    const prompt = `You are a senior SEO editor writing for a Persian parenting magazine (style of gahvarak.com).
-UPDATE this article with CURRENT research (2024-2026, CDC/AAP when relevant). Do NOT recycle outdated advice.
+    const prompt = `You are a senior SEO editor for a Persian parenting magazine (gahvarak.com style).
+Update with CURRENT research (2024-2026, CDC/AAP when relevant). Do NOT recycle outdated advice.
 
 ${langHint}
-Target length: about ${targetChars} CHARACTERS (±12%).
-Keyword: ${data.keyword || "(infer)"}
+Length strategy: ${lengthGuidance}
+Primary keyword: ${data.keyword || "(infer)"}
+Website context: ${websiteContext || "parenting / baby care magazine (گهوارک)"}
+Recent site direction: ${recentNotes || "latest standards and trends"}
 
-Structure the article EXACTLY like a comprehensive guide:
-1. Start updatedText with a short intro paragraph (no heading).
-2. Then many sections with # for main H1 titles.
-3. Use ## for H2 subsections (e.g. under FAQ).
-4. Use ### for H3 if needed.
-5. Use - for bullet lists.
-6. Use **bold** for key terms.
-7. Include a # فهرست مطالب section early with numbered list of all H1 topics.
-8. End with # سوالات متداول (FAQ with ## questions) and # جمع‌بندی.
+Structure updatedText:
+1. Short intro paragraph (no heading).
+2. Many # H1 sections, ## H2, ### H3.
+3. Use - for bullets and **bold** for key terms.
+4. Include # فهرست مطالب early.
+5. End with # سوالات متداول and # جمع‌بندی.
+6. Place markers <!-- IMAGE_1 -->, <!-- IMAGE_2 -->, <!-- IMAGE_3 --> where images should appear.
 
 Return ONLY one valid JSON object (no markdown fences):
 {
-  "title": "SEO title max 70 chars",
+  "title": "SEO title max 60 chars",
+  "titleAlternatives": ["alt1","alt2","alt3"],
   "slug": "english-only-hyphenated-slug",
-  "keyword": "keyword",
-  "description": "meta 140-160 chars",
-  "updatedText": "full body with # ## ### - and **bold** only. No HTML tags.",
+  "keyword": "primary keyword",
+  "secondaryKeywords": ["kw1","kw2","kw3","kw4","kw5"],
+  "description": "meta 130-155 chars with CTA",
+  "updatedText": "full body with # ## ### - **bold** and IMAGE markers. No HTML tags.",
+  "summaryOfImprovements": ["improvement 1","improvement 2","improvement 3"],
+  "seoScore": 90,
+  "seoAudit": [
+    {"name":"کلمه کلیدی در عنوان","status":"pass","description":"..."},
+    {"name":"طول متا","status":"pass","description":"..."},
+    {"name":"ساختار تیترها","status":"pass","description":"..."},
+    {"name":"کیفیت اسلاگ","status":"pass","description":"..."},
+    {"name":"تصاویر و alt","status":"pass","description":"..."}
+  ],
   "images": [
-    {"title": "Persian alt text for image 1", "prompt": "detailed ENGLISH photo prompt, realistic editorial parenting, no text watermark"},
-    {"title": "Persian alt text for image 2", "prompt": "..."},
-    {"title": "Persian alt text for image 3", "prompt": "..."}
+    {"title":"عنوان فارسی","altText":"alt فارسی با کلمه کلیدی","prompt":"ENGLISH hero 16:9 editorial photo, no text","type":"hero"},
+    {"title":"...","altText":"...","prompt":"ENGLISH infographic 4:3","type":"infographic"},
+    {"title":"...","altText":"...","prompt":"ENGLISH summary visual","type":"summary"}
   ]
 }
 
-slug MUST be pure English (e.g. complementary-feeding-baby). Never Finglish or Persian letters in slug.
+slug MUST be pure English kebab-case. Never Finglish or Persian letters.
 
 SOURCE:
 ${source}`;
@@ -535,11 +603,16 @@ ${source}`;
 
     let parsed: {
       title?: string;
+      titleAlternatives?: string[];
       slug?: string;
       keyword?: string;
+      secondaryKeywords?: string[];
       description?: string;
       updatedText?: string;
-      images?: { title?: string; prompt?: string }[];
+      summaryOfImprovements?: string[];
+      seoScore?: number;
+      seoAudit?: SeoAuditItem[];
+      images?: { title?: string; altText?: string; prompt?: string; type?: string }[];
     };
     try {
       parsed = extractJson(content) as typeof parsed;
@@ -561,14 +634,19 @@ ${source}`;
       .slice(0, 3)
       .map((img, i) => ({
         title: img.title?.trim() || `تصویر ${i + 1}`,
+        altText: img.altText?.trim() || img.title?.trim() || `تصویر ${i + 1}`,
         prompt: img.prompt?.trim() || "",
+        type: (img.type as ImageResult["type"]) || (i === 0 ? "hero" : i === 1 ? "infographic" : "summary"),
       }))
       .filter((img) => img.prompt);
 
     while (images.length < 3) {
+      const i = images.length;
       images.push({
         title: `تصویر مرتبط با ${parsed.keyword || data.keyword || "موضوع مقاله"}`,
+        altText: `تصویر مرتبط با ${parsed.keyword || data.keyword || "موضوع مقاله"}`,
         prompt: `Professional editorial photograph about ${parsed.keyword || data.keyword || "baby complementary feeding"}, soft natural light, realistic, no text, no watermark`,
+        type: i === 0 ? "hero" : i === 1 ? "infographic" : "summary",
       });
     }
 
@@ -588,11 +666,18 @@ ${source}`;
     const htmlContent = buildGahvarakHtml(blocks);
     const slug = toEnglishSlug(parsed.slug || parsed.title || "updated-article");
 
+    const refreshedWordCount = countWords(plain || rawText);
+    let lengthActionTaken: "expanded" | "condensed" | "balanced" = "balanced";
+    if (refreshedWordCount > originalWordCount + 150) lengthActionTaken = "expanded";
+    else if (refreshedWordCount < originalWordCount - 150) lengthActionTaken = "condensed";
+
     return {
       ok: true,
       title: parsed.title?.trim() || "مقاله به‌روز",
+      titleAlternatives: (parsed.titleAlternatives || []).filter(Boolean).slice(0, 5),
       slug: slug || "updated-article",
       keyword: parsed.keyword?.trim() || data.keyword || "",
+      secondaryKeywords: (parsed.secondaryKeywords || []).filter(Boolean).slice(0, 8),
       description: parsed.description?.trim() || "",
       updatedText: plain || rawText,
       htmlContent,
@@ -601,5 +686,12 @@ ${source}`;
       model,
       approxCost: undefined,
       sourceChecked,
+      originalWordCount,
+      refreshedWordCount,
+      lengthActionTaken,
+      estimatedReadingTimeMinutes: Math.max(1, Math.round(refreshedWordCount / 180)),
+      summaryOfImprovements: (parsed.summaryOfImprovements || []).filter(Boolean).slice(0, 8),
+      seoScore: typeof parsed.seoScore === "number" ? parsed.seoScore : 0,
+      seoAudit: Array.isArray(parsed.seoAudit) ? parsed.seoAudit.slice(0, 10) : [],
     };
   });
