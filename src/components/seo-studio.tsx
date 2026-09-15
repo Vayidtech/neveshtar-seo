@@ -5,7 +5,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   getDefaultModel, getModelsForProvider, rewriteArticle,
-  type OutputLang, type Provider, type RewriteResult,
+  type LengthStrategy, type OutputLang, type Provider, type RewriteResult,
 } from "@/lib/rewrite-article";
 
 const PROVIDERS: { id: Provider; label: string }[] = [
@@ -83,6 +83,9 @@ export function SeoStudio() {
   const [keyword, setKeyword] = useState("");
   const [lang, setLang] = useState<OutputLang>("fa");
   const [targetChars, setTargetChars] = useState(5000);
+  const [lengthStrategy, setLengthStrategy] = useState<LengthStrategy>("custom");
+  const [websiteContext, setWebsiteContext] = useState("مجله تخصصی والدین و مراقبت از نوزاد — گهوارک");
+  const [recentNotes, setRecentNotes] = useState("");
   const [generateImages, setGenerateImages] = useState(true);
   const [provider, setProvider] = useState<Provider>("openai");
   const [model, setModel] = useState(getDefaultModel("openai"));
@@ -151,6 +154,9 @@ export function SeoStudio() {
           text,
           keyword,
           targetChars,
+          lengthStrategy,
+          websiteContext,
+          recentNotes,
           lang,
           generateImages,
           provider,
@@ -199,7 +205,7 @@ export function SeoStudio() {
             به‌روزرسانی مقاله و سئو
           </h1>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-            HTML آماده کپی · ChatGPT / OpenAI · Gemini رایگان · H1/H2/H3
+            کیت سئو کامل · استراتژی طول · OpenAI / Gemini / Grok · HTML آماده کپی
           </p>
         </div>
         <div className="flex gap-2">
@@ -243,7 +249,7 @@ export function SeoStudio() {
               placeholder="متن مقاله…" className="field min-h-36 resize-y" />
           </Field>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="کلمه کلیدی">
               <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="field" placeholder="غذای کمکی نوزاد" />
             </Field>
@@ -253,11 +259,33 @@ export function SeoStudio() {
                 <option value="en">English</option>
               </select>
             </Field>
-            <Field label="طول هدف (کاراکتر)">
-              <input type="number" min={500} max={25000} step={500} value={targetChars}
-                onChange={(e) => setTargetChars(Number(e.target.value) || 5000)} className="field" dir="ltr" />
-            </Field>
           </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="استراتژی طول (از seooo)">
+              <select value={lengthStrategy} onChange={(e) => setLengthStrategy(e.target.value as LengthStrategy)} className="field">
+                <option value="auto">خودکار (کوتاه→گسترش / بلند→خلاصه)</option>
+                <option value="expand">گسترش به ۸۰۰–۱۴۰۰ کلمه</option>
+                <option value="condense">خلاصه به ۶۵۰–۹۵۰ کلمه</option>
+                <option value="custom">سفارشی (تعداد کاراکتر)</option>
+              </select>
+            </Field>
+            {lengthStrategy === "custom" && (
+              <Field label="طول هدف (کاراکتر)">
+                <input type="number" min={500} max={25000} step={500} value={targetChars}
+                  onChange={(e) => setTargetChars(Number(e.target.value) || 5000)} className="field" dir="ltr" />
+              </Field>
+            )}
+          </div>
+
+          <Field label="زمینه و لحن سایت">
+            <input value={websiteContext} onChange={(e) => setWebsiteContext(e.target.value)} className="field"
+              placeholder="مثلاً مجله والدین و مراقبت از نوزاد" />
+          </Field>
+          <Field label="یادداشت مقالات اخیر / جهت‌گیری محتوا (اختیاری)">
+            <textarea value={recentNotes} onChange={(e) => setRecentNotes(e.target.value)} rows={2}
+              placeholder="ترندها یا نکات مقالات جدید سایت…" className="field resize-y" />
+          </Field>
 
           <label className="flex min-h-11 items-center gap-3 text-sm text-fg">
             <input type="checkbox" checked={generateImages} onChange={(e) => setGenerateImages(e.target.checked)} className="size-4 accent-fg" />
@@ -288,10 +316,39 @@ export function SeoStudio() {
             <dl className="grid gap-3 sm:grid-cols-2">
               <Meta label="عنوان" value={result.title} />
               <Meta label="اسلاگ انگلیسی" value={result.slug} ltr />
-              <Meta label="کلمه کلیدی" value={result.keyword} />
-              <Meta label="تعداد کاراکتر" value={String(charCount)} />
+              <Meta label="کلمه کلیدی اصلی" value={result.keyword} />
+              <Meta label="امتیاز سئو" value={result.seoScore ? String(result.seoScore) : "—"} />
+              <Meta label="کلمات (قبل → بعد)" value={`${result.originalWordCount} → ${result.refreshedWordCount} (${result.lengthActionTaken})`} />
+              <Meta label="زمان مطالعه" value={`حدود ${result.estimatedReadingTimeMinutes} دقیقه`} />
               <div className="sm:col-span-2"><Meta label="توضیحات متا" value={result.description} /></div>
+              {result.secondaryKeywords?.length > 0 && (
+                <div className="sm:col-span-2">
+                  <Meta label="کلمات کلیدی ثانویه" value={result.secondaryKeywords.join(" · ")} />
+                </div>
+              )}
+              {result.titleAlternatives?.length > 0 && (
+                <div className="sm:col-span-2">
+                  <Meta label="عناوین جایگزین" value={result.titleAlternatives.join(" | ")} />
+                </div>
+              )}
             </dl>
+            {result.summaryOfImprovements?.length > 0 && (
+              <ul className="mt-4 space-y-1 text-xs text-muted list-disc list-inside">
+                {result.summaryOfImprovements.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
+            )}
+            {result.seoAudit?.length > 0 && (
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {result.seoAudit.map((a, i) => (
+                  <div key={i} className="rounded-md border border-border bg-bg px-3 py-2 text-xs">
+                    <span className={a.status === "pass" ? "text-ok" : "text-muted"}>● {a.name}</span>
+                    <p className="mt-0.5 text-subtle-fg">{a.description}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="rounded-xl border border-border bg-surface p-5 sm:p-6">
@@ -341,7 +398,7 @@ export function SeoStudio() {
                   ) : (
                     <div className="flex aspect-square flex-col items-center justify-center gap-1 p-2 text-center text-xs text-subtle-fg">
                       <span>جایگاه تصویر {i + 1}</span>
-                      <span className="text-[10px] text-muted">alt: {img.title}</span>
+                      <span className="text-[10px] text-muted">alt: {img.altText || img.title}</span>
                     </div>
                   )}
                   <figcaption className="p-3 text-sm text-fg">{img.title}</figcaption>
